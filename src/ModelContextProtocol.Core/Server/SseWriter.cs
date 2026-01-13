@@ -22,6 +22,7 @@ internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOp
     private long _lastActivityTicks = DateTime.UtcNow.Ticks;
 
     private readonly SemaphoreSlim _disposeLock = new(1, 1);
+    private readonly CancellationTokenSource _disposeCts = new();
     private bool _disposed;
 
     public Func<IAsyncEnumerable<SseItem<JsonRpcMessage?>>, CancellationToken, IAsyncEnumerable<SseItem<JsonRpcMessage?>>>? MessageFilter { get; set; }
@@ -41,7 +42,10 @@ internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOp
 
         if (heartbeatInterval.HasValue)
         {
-            _heartbeatTask = RunHeartbeatLoopAsync(heartbeatInterval.Value, cancellationToken);
+            // We need to link the passed token with our dispose token so the heartbeat loop stops
+            // either when the caller cancels OR when we dispose.
+            var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _disposeCts.Token);
+            _heartbeatTask = RunHeartbeatLoopAsync(heartbeatInterval.Value, linkedToken.Token);
         }
 
         var messages = _messages.Reader.ReadAllAsync(cancellationToken);
@@ -108,6 +112,8 @@ internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOp
         }
 
         _messages.Writer.TryComplete();
+        _disposeCts.Cancel();
+
         try
         {
             if (_writeTask is not null)
@@ -120,13 +126,14 @@ internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOp
                 await _heartbeatTask.ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException) when (_writeCancellationToken?.IsCancellationRequested == true)
+        catch (OperationCanceledException) when (_writeCancellationToken?.IsCancellationRequested == true || _disposeCts.IsCancellationRequested)
         {
             // Ignore exceptions caused by intentional cancellation during shutdown.
         }
         finally
         {
             _jsonWriter?.Dispose();
+            _disposeCts.Dispose();
             _disposed = true;
         }
     }
