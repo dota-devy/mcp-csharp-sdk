@@ -21,13 +21,35 @@ namespace ModelContextProtocol.Server;
 /// </remarks>
 public sealed class StreamableHttpServerTransport : ITransport
 {
+    private TimeSpan? _heartbeatInterval;
+
     // For JsonRpcMessages without a RelatedTransport, we don't want to block just because the client didn't make a GET request to handle unsolicited messages.
-    private readonly SseWriter _sseWriter = new(channelOptions: new BoundedChannelOptions(1)
+    private SseWriter _sseWriter = new(channelOptions: new BoundedChannelOptions(1)
     {
         SingleReader = true,
         SingleWriter = false,
         FullMode = BoundedChannelFullMode.DropOldest,
     });
+
+    /// <summary>
+    /// Gets or sets the interval at which heartbeat messages are sent to keep the SSE connection alive.
+    /// </summary>
+    public TimeSpan? HeartbeatInterval
+    {
+        get => _heartbeatInterval;
+        set
+        {
+            _heartbeatInterval = value;
+            _sseWriter = new SseWriter(
+                channelOptions: new BoundedChannelOptions(1)
+                {
+                    SingleReader = true,
+                    SingleWriter = false,
+                    FullMode = BoundedChannelFullMode.DropOldest,
+                },
+                heartbeatInterval: value);
+        }
+    }
     private readonly Channel<JsonRpcMessage> _incomingChannel = Channel.CreateBounded<JsonRpcMessage>(new BoundedChannelOptions(1)
     {
         SingleReader = true,

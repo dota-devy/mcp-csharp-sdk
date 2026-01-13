@@ -7,7 +7,7 @@ using System.Threading.Channels;
 
 namespace ModelContextProtocol.Server;
 
-internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOptions? channelOptions = null) : IAsyncDisposable
+internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOptions? channelOptions = null, TimeSpan? heartbeatInterval = null) : IAsyncDisposable
 {
     private readonly Channel<SseItem<JsonRpcMessage?>> _messages = Channel.CreateBounded<SseItem<JsonRpcMessage?>>(channelOptions ?? new BoundedChannelOptions(1)
     {
@@ -17,7 +17,9 @@ internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOp
 
     private Utf8JsonWriter? _jsonWriter;
     private Task? _writeTask;
+    private Task? _heartbeatTask;
     private CancellationToken? _writeCancellationToken;
+    private long _lastActivityTicks = DateTime.UtcNow.Ticks;
 
     private readonly SemaphoreSlim _disposeLock = new(1, 1);
     private bool _disposed;
@@ -37,6 +39,11 @@ internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOp
 
         _writeCancellationToken = cancellationToken;
 
+        if (heartbeatInterval.HasValue)
+        {
+            _heartbeatTask = RunHeartbeatLoopAsync(heartbeatInterval.Value, cancellationToken);
+        }
+
         var messages = _messages.Reader.ReadAllAsync(cancellationToken);
         if (MessageFilter is not null)
         {
@@ -45,6 +52,31 @@ internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOp
 
         _writeTask = SseFormatter.WriteAsync(messages, sseResponseStream, WriteJsonRpcMessageToBuffer, cancellationToken);
         return _writeTask;
+    }
+
+    private async Task RunHeartbeatLoopAsync(TimeSpan interval, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var now = DateTime.UtcNow.Ticks;
+                var lastActivity = Interlocked.Read(ref _lastActivityTicks);
+                var elapsed = TimeSpan.FromTicks(now - lastActivity);
+
+                if (elapsed >= interval)
+                {
+                    // If the underlying writer has been completed, TryWrite will return false.
+                    _messages.Writer.TryWrite(new SseItem<JsonRpcMessage?>(null, "ping"));
+                    Interlocked.Exchange(ref _lastActivityTicks, DateTime.UtcNow.Ticks);
+                }
+
+                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     public async Task<bool> SendMessageAsync(JsonRpcMessage message, CancellationToken cancellationToken = default)
@@ -62,6 +94,7 @@ internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOp
 
         // Emit redundant "event: message" lines for better compatibility with other SDKs.
         await _messages.Writer.WriteAsync(new SseItem<JsonRpcMessage?>(message, SseParser.EventTypeDefault), cancellationToken).ConfigureAwait(false);
+        Interlocked.Exchange(ref _lastActivityTicks, DateTime.UtcNow.Ticks);
         return true;
     }
 
@@ -74,12 +107,17 @@ internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOp
             return;
         }
 
-        _messages.Writer.Complete();
+        _messages.Writer.TryComplete();
         try
         {
             if (_writeTask is not null)
             {
                 await _writeTask.ConfigureAwait(false);
+            }
+
+            if (_heartbeatTask is not null)
+            {
+                await _heartbeatTask.ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (_writeCancellationToken?.IsCancellationRequested == true)
@@ -98,6 +136,11 @@ internal sealed class SseWriter(string? messageEndpoint = null, BoundedChannelOp
         if (item.EventType == "endpoint" && messageEndpoint is not null)
         {
             writer.Write(Encoding.UTF8.GetBytes(messageEndpoint));
+            return;
+        }
+
+        if (item.Data is null)
+        {
             return;
         }
 

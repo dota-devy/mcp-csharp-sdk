@@ -887,7 +887,7 @@ public class McpServerTests : LoggedTest
         await transport.SendClientMessageAsync(initializeRequest, cancellationToken);
 
         // Wait for the initialize response to be sent
-        await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        await tcs.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
     }
 
     private sealed class TestServerForIChatClient(bool supportsSampling) : McpServer

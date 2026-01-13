@@ -9,7 +9,7 @@ public class InMemorySessionStoreTests
 
     public InMemorySessionStoreTests()
     {
-        _timeProvider.SetUtcNow(new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.Zero));
+        _timeProvider.SetUtcNow(new DateTimeOffset(2025, 1, 1, 1, 0, 0, TimeSpan.Zero));
         _store = new InMemorySessionStore(_timeProvider);
     }
 

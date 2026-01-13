@@ -202,6 +202,7 @@ internal sealed class StreamableHttpHandler(
         {
             SessionId = sessionId,
             FlowExecutionContextFromRequests = !HttpServerTransportOptions.PerSessionExecutionContext,
+            HeartbeatInterval = HttpServerTransportOptions.KeepAliveInterval,
         };
 
         context.Response.Headers[McpSessionIdHeaderName] = sessionId;
@@ -267,6 +268,7 @@ internal sealed class StreamableHttpHandler(
             {
                 SessionId = sessionId,
                 FlowExecutionContextFromRequests = !HttpServerTransportOptions.PerSessionExecutionContext,
+                HeartbeatInterval = HttpServerTransportOptions.KeepAliveInterval,
             };
             context.Response.Headers[McpSessionIdHeaderName] = sessionId;
         }

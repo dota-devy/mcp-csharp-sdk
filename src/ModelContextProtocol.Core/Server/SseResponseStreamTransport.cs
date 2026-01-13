@@ -25,9 +25,10 @@ namespace ModelContextProtocol.Server;
 /// Defaults to "/message".
 /// </param>
 /// <param name="sessionId">The identifier corresponding to the current MCP session.</param>
-public sealed class SseResponseStreamTransport(Stream sseResponseStream, string? messageEndpoint = "/message", string? sessionId = null) : ITransport
+/// <param name="heartbeatInterval">The interval at which heartbeat messages are sent to keep the SSE connection alive.</param>
+public sealed class SseResponseStreamTransport(Stream sseResponseStream, string? messageEndpoint = "/message", string? sessionId = null, TimeSpan? heartbeatInterval = null) : ITransport
 {
-    private readonly SseWriter _sseWriter = new(messageEndpoint);
+    private readonly SseWriter _sseWriter = new(messageEndpoint, heartbeatInterval: heartbeatInterval);
     private readonly Channel<JsonRpcMessage> _incomingChannel = Channel.CreateBounded<JsonRpcMessage>(new BoundedChannelOptions(1)
     {
         SingleReader = true,

@@ -102,4 +102,12 @@ public class HttpServerTransportOptions
     /// automatically recreated from stored metadata.
     /// </remarks>
     public bool EnableDistributedSessions { get; set; }
+
+    /// <summary>
+    /// Gets or sets the interval at which keep-alive messages are sent over SSE connections.
+    /// </summary>
+    /// <value>
+    /// The interval at which keep-alive messages are sent. The default is <see langword="null"/>, which means keep-alive messages are disabled.
+    /// </value>
+    public TimeSpan? KeepAliveInterval { get; set; }
 }
